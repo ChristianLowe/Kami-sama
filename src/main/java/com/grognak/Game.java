@@ -3,12 +3,12 @@ package com.grognak;
 import com.diogonunes.jcdp.color.ColoredPrinter;
 import com.diogonunes.jcdp.color.api.Ansi;
 
-import java.util.ArrayList;
-import java.util.InputMismatchException;
-import java.util.List;
-import java.util.Scanner;
+import java.util.*;
 
 class Game {
+    private static final int CPUAI_RANGE = 10;
+    private static final int HUMAN_RANGE = 20;
+
     private int[][] board;
     Scanner in;
 
@@ -33,11 +33,22 @@ class Game {
                 performMove(move);
             } else {
                 System.out.println("The computer can't move yet...");
+                System.out.printf("But if I could, my valid moves are: %s\n", getValidMoves(CPUAI_RANGE));
             }
 
-            playerTurn = !playerTurn;
-
+            if (isGameOver()) {
+                String winner = playerTurn ? "player" : "computer";
+                System.out.printf("Game over! The winner is the %s. Final board:", winner);
+                printBoard();
+                break;
+            } else {
+                playerTurn = !playerTurn;
+            }
         }
+    }
+
+    private boolean isGameOver() {
+        return true; // TODO
     }
 
     private void performMove(String move) {
@@ -55,18 +66,20 @@ class Game {
     }
 
     private void performAttack(int y, int x) {
-        return; // TODO
+        // TODO
     }
 
     private String getPlayerMove() {
         String move;
 
         while (true) {
-            System.out.printf("Valid moves are: %s\n", String.join(",", getValidMoves()));
+            List<String> validMoves = getValidMoves(HUMAN_RANGE);
+
+            System.out.printf("Valid moves are: %s\n", String.join(", ", validMoves));
             System.out.print("Please enter your desired move: ");
             move = in.next();
 
-            if (isValidMove(move)) {
+            if (validMoves.contains(move)) {
                 return move;
             } else {
                 System.out.println("That is not a valid move.\n");
@@ -74,14 +87,109 @@ class Game {
         }
     }
 
-    private boolean isValidMove(String move) {
-        return true;
-        //TODO: After implementing getValidMoves():
-        //return getValidMoves().contains(move);
+    private List<String> getValidMoves(int range) {
+        List<String> validMoves = new LinkedList<>();
+        int forwardY = (range == CPUAI_RANGE) ? 1 : -1;
+
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 7; x++) {
+                int pieceType = board[y][x] - range;
+                if (pieceType >= 0 && pieceType <= 9) {
+                    addValidMoves(validMoves, y, x, forwardY, range);
+                }
+            }
+        }
+
+        return validMoves;
     }
 
-    private List<String> getValidMoves() {
-        return new ArrayList<>(); // TODO
+    private void addValidMoves(List<String> validMoves, int y, int x, int forwardY, int range) {
+        boolean isMini = false;
+        int testY;
+        int testX;
+
+        switch (board[y][x] % 10) {
+            case 1: // Mini Ninja
+                isMini = true;
+            case 2: // Norm Ninja
+                testY = y;
+                testX = x;
+                do {
+                    // Forward left
+                    testY += forwardY;
+                    testX -= 1;
+
+                    if(inBounds(testY, testX) && board[testY][testX] == 00) {
+                        validMoves.add(getAlgebraicNotation(y, x, testY, testX));
+                    } else break;
+                } while (!isMini);
+
+                testY = y;
+                testX = x;
+                do {
+                    // Forward right
+                    testY += forwardY;
+                    testX += 1;
+
+                    if(inBounds(testY, testX) && board[testY][testX] == 00) {
+                        validMoves.add(getAlgebraicNotation(y, x, testY, testX));
+                    } else break;
+                } while (!isMini);
+
+                testY = y;
+                testX = x;
+                do {
+                    // Back left
+                    testY -= forwardY;
+                    testX -= 1;
+
+                    if(inBounds(testY, testX) && inBounds(testY+forwardY, testX) && board[testY][testX] == 00) {
+                        int victimPiece = board[testY+forwardY][testX];
+                        if (victimPiece != 00 && !(victimPiece > range && victimPiece < range+10)) {
+                            // There is an enemy piece that we can attack
+                            validMoves.add(getAlgebraicNotation(y, x, testY, testX));
+                        }
+                    } else break;
+                } while (!isMini);
+
+                testY = y;
+                testX = x;
+                do {
+                    // Back right
+                    testY -= forwardY;
+                    testX += 1;
+
+                    if(inBounds(testY, testX) && inBounds(testY+forwardY, testX) && board[testY][testX] == 00) {
+                        int victimPiece = board[testY+forwardY][testX];
+                        if (victimPiece != 00 && !(victimPiece > range && victimPiece < range+10)) {
+                            // There is an enemy piece that we can attack
+                            validMoves.add(getAlgebraicNotation(y, x, testY, testX));
+                        }
+                    } else break;
+                } while (!isMini);
+
+                return;
+            case 5: // Mini Samurai
+                isMini = true;
+            case 6: // Norm Samurai
+                //
+                return;
+            case 9: // The King
+                // The King has no possible moves.
+        }
+    }
+
+    private String getAlgebraicNotation(int y, int x, int testY, int testX) {
+        return new String(new char[] {
+                (char)((int)'A' + x),
+                (char)((int)'0' + (8 - y)),
+                (char)((int)'A' + testX),
+                (char)((int)'0' + (8 - testY)),
+        });
+    }
+
+    private boolean inBounds(int testY, int testX) {
+        return testX >= 0 && testX <= 6 && testY >= 0 && testY <= 7;
     }
 
     private void init() {
