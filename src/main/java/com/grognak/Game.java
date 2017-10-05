@@ -8,9 +8,11 @@ import java.util.*;
 class Game {
     private static final int CPUAI_RANGE = 10;
     private static final int HUMAN_RANGE = 20;
+    private static final int MAX_DEPTH = 5;
 
     private int[][] board;
-    Scanner in;
+    private boolean isGameOver;
+    private Scanner in;
 
     Game() {
         init();
@@ -24,60 +26,173 @@ class Game {
             playerTurn = true;
         }
 
-        System.out.println("Welcome! Here is a fresh, new board:");
+        System.out.println("\nWelcome! Here is a fresh, new board:");
         while (true) {
+            int range = playerTurn ? HUMAN_RANGE : CPUAI_RANGE;
+            List<String> validMoves = getValidMoves(range);
+
             printBoard();
 
-            if (playerTurn) {
-                String move = getPlayerMove();
-                performMove(move);
-            } else {
-                System.out.println("The computer can't move yet...");
-                System.out.printf("But if I could, my valid moves are: %s\n", getValidMoves(CPUAI_RANGE));
+            if (isGameOver || validMoves.isEmpty()) {
+                String winner = !playerTurn ? "player" : "computer";
+                System.out.printf("Game over! The winner is the %s.\n", winner);
+                break;
             }
 
-            if (isGameOver()) {
-                String winner = playerTurn ? "player" : "computer";
-                System.out.printf("Game over! The winner is the %s. Final board:", winner);
-                printBoard();
-                break;
+            if (playerTurn) {
+                String move = getPlayerMove(validMoves);
+                performMove(move);
             } else {
-                playerTurn = !playerTurn;
+                computerMoves(validMoves);
             }
+
+            playerTurn = !playerTurn;
         }
     }
 
-    private boolean isGameOver() {
-        return true; // TODO
+    private void computerMoves(List<String> validMoves) {
+        int bestScore = Integer.MIN_VALUE;
+        String bestMove = null;
+
+        for (String validMove : validMoves) {
+            int[][] backupBoard = Arrays.stream(board)
+                    .map(int[]::clone)
+                    .toArray(int[][]::new);
+
+            performMove(validMove);
+
+            int score = scorePieces(CPUAI_RANGE) - scorePieces(HUMAN_RANGE);
+            if (score > bestScore) {
+                bestScore = score;
+                bestMove = validMove;
+            }
+
+            if (isGameOver) {
+                return;
+            } else {
+                board = backupBoard;
+            }
+        }
+
+        performMove(bestMove);
+    }
+
+    /*private int min(int depth) {
+        int bestScore = Integer.MAX_VALUE;
+        if (depth == MAX_DEPTH) return evaluate();
+
+        for (String validMove : validMoves) {
+            int[][] backupBoard = Arrays.stream(board)
+                    .map(int[]::clone)
+                    .toArray(int[][]::new);
+
+            performMove(validMove);
+
+            int score = min(1);//
+            if (score > bestScore) {
+                bestScore = score;
+                bestMove = validMove;
+            }
+
+            if (isGameOver) {
+                return;
+            } else {
+                board = backupBoard;
+            }
+        }
+
+        return bestScore;
+    }*/
+
+    private int evaluate() {
+        return scorePieces(CPUAI_RANGE) - scorePieces(HUMAN_RANGE);
+    }
+
+    private int scorePieces(int range) {
+        int score = 0;
+
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 7; x++) {
+                int pieceType = board[y][x] - range;
+                if (pieceType >= 0 && pieceType <= 9) {
+                    switch (pieceType) {
+                        case 1: // Mini Ninja
+                        case 5: // Mini Samurai
+                            score += 1;
+                            break;
+                        case 2: // Norm Ninja
+                        case 6: // Norm Samurai
+                            score += 3;
+                            break;
+                        case 9: // The King
+                            score += 100;
+                            break;
+                        default:
+                            throw new IllegalStateException();
+                    }
+                }
+            }
+        }
+
+        return score;
     }
 
     private void performMove(String move) {
-        char[] chars = move.toCharArray();
+        char[] chars = move.toCharArray(); // Algebraic notation
         int x1 = chars[0] - 'A';
         int y1 = 8 - (chars[1] - '0');
         int x2 = chars[2] - 'A';
         int y2 = 8 - (chars[3] - '0');
 
+        performMove(y1, x1, y2, x2);
+    }
+
+    private void performMove(int y1, int x1, int y2, int x2) {
         int piece = board[y1][x1];
         board[y1][x1] = 00;
         board[y2][x2] = piece;
 
-        performAttack(y2, x2);
+        boolean attackPerformed = performAttack(y2, x2);
+        System.out.printf("Move: %s %s\n", getAlgebraicNotation(y1, x1, y2, x2), attackPerformed? "Hi-YA!" : "");
     }
 
-    private void performAttack(int y, int x) {
-        // TODO
+    private boolean performAttack(int y, int x) {
+        int rangeAttacker = (board[y][x] / 10) * 10; // Integer division sets the ones place to 0
+        int forwardY = (rangeAttacker == CPUAI_RANGE) ? 1 : -1;
+
+        if (!inBounds(y+forwardY, x)) return false; // Attack would land off the board
+
+        int rangeDefender = (board[y+forwardY][x] / 10) * 10;
+        if (rangeDefender == 0 || rangeDefender == rangeAttacker) return false; // Not a valid target
+
+        // If we're this far, we have a valid target that we are going to attack.
+        switch (board[y+forwardY][x] % 10) {
+            case 1: // Mini Ninja
+            case 5: // Mini Samurai
+                board[y+forwardY][x] = 00; // The mini pieces are killed
+                break;
+            case 2: // Norm Ninja
+            case 6: // Norm Samurai
+                board[y+forwardY][x]--; // Demote the piece
+                break;
+            case 9: // The King!
+                board[y+forwardY][x] = 00; // The King is killed - game over
+                isGameOver = true;
+                break;
+            default:
+                throw new IllegalStateException();
+        }
+
+        return true;
     }
 
-    private String getPlayerMove() {
+    private String getPlayerMove(List<String> validMoves) {
         String move;
 
         while (true) {
-            List<String> validMoves = getValidMoves(HUMAN_RANGE);
-
             System.out.printf("Valid moves are: %s\n", String.join(", ", validMoves));
             System.out.print("Please enter your desired move: ");
-            move = in.next();
+            move = in.next().toUpperCase();
 
             if (validMoves.contains(move)) {
                 return move;
@@ -89,7 +204,7 @@ class Game {
 
     private List<String> getValidMoves(int range) {
         List<String> validMoves = new LinkedList<>();
-        int forwardY = (range == CPUAI_RANGE) ? 1 : -1;
+        int forwardY = (range == CPUAI_RANGE) ? 1 : -1; // The computer considers down (+y) as "forward"
 
         for (int y = 0; y < 8; y++) {
             for (int x = 0; x < 7; x++) {
@@ -172,19 +287,59 @@ class Game {
             case 5: // Mini Samurai
                 isMini = true;
             case 6: // Norm Samurai
-                //
+                testY = y;
+                testX = x;
+                do {
+                    // Forward
+                    testY += forwardY;
+
+                    if(inBounds(testY, testX) && board[testY][testX] == 00) {
+                        validMoves.add(getAlgebraicNotation(y, x, testY, testX));
+                    } else break;
+                } while (!isMini);
+
+                testY = y;
+                testX = x;
+                do {
+                    // Left
+                    testX -= 1;
+
+                    if(inBounds(testY, testX) && inBounds(testY+forwardY, testX) && board[testY][testX] == 00) {
+                        int victimPiece = board[testY+forwardY][testX];
+                        if (victimPiece != 00 && !(victimPiece > range && victimPiece < range+10)) {
+                            // There is an enemy piece that we can attack
+                            validMoves.add(getAlgebraicNotation(y, x, testY, testX));
+                        }
+                    } else break;
+                } while (!isMini);
+
+                testY = y;
+                testX = x;
+                do {
+                    // Right
+                    testX += 1;
+
+                    if(inBounds(testY, testX) && inBounds(testY+forwardY, testX) && board[testY][testX] == 00) {
+                        int victimPiece = board[testY+forwardY][testX];
+                        if (victimPiece != 00 && !(victimPiece > range && victimPiece < range+10)) {
+                            // There is an enemy piece that we can attack
+                            validMoves.add(getAlgebraicNotation(y, x, testY, testX));
+                        }
+                    } else break;
+                } while (!isMini);
+
                 return;
             case 9: // The King
                 // The King has no possible moves.
         }
     }
 
-    private String getAlgebraicNotation(int y, int x, int testY, int testX) {
+    private String getAlgebraicNotation(int fromY, int fromX, int toY, int toX) {
         return new String(new char[] {
-                (char)((int)'A' + x),
-                (char)((int)'0' + (8 - y)),
-                (char)((int)'A' + testX),
-                (char)((int)'0' + (8 - testY)),
+                (char)((int)'A' + fromX),
+                (char)((int)'0' + (8 - fromY)),
+                (char)((int)'A' + toX),
+                (char)((int)'0' + (8 - toY)),
         });
     }
 
@@ -220,6 +375,7 @@ class Game {
                 {00, 00, 00, 29, 00, 00, 00},
         };
 
+        isGameOver = false;
         in = new Scanner(System.in);
     }
 
