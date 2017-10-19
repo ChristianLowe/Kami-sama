@@ -2,13 +2,18 @@ package com.grognak;
 
 import com.diogonunes.jcdp.color.ColoredPrinter;
 import com.diogonunes.jcdp.color.api.Ansi;
+import com.google.common.util.concurrent.SimpleTimeLimiter;
+import com.google.common.util.concurrent.TimeLimiter;
 
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
-class Game {
+public class Game {
     private static final int CPUAI_RANGE = 10;
     private static final int HUMAN_RANGE = 20;
-    private static final int MAX_DEPTH = 5;
+    private static final int MAX_DEPTH = 50_000;
 
     private int[][] board;
     private boolean isGameOver;
@@ -36,24 +41,61 @@ class Game {
             if (isGameOver || validMoves.isEmpty()) {
                 String winner = !playerTurn ? "player" : "computer";
                 System.out.printf("Game over! The winner is the %s.\n", winner);
-                break;
+                System.out.println("Press Ctrl+C to quit...");
+                while (true) in.nextLine(); // :)
             }
 
             if (playerTurn) {
                 String move = getPlayerMove(validMoves);
-                performMove(move);
+                System.out.println(performMove(move));
             } else {
-                computerMoves(validMoves);
+                String move = getComputerMove(validMoves);
+
+                System.out.println(performMove(move));
+                System.out.println("My options were: "+String.join(", ", validMoves));
             }
 
             playerTurn = !playerTurn;
         }
     }
 
-    private void computerMoves(List<String> validMoves) {
+    private String getComputerMove(List<String> validMoves) {
+        AtomicReference<String> move = new AtomicReference<>();
+        TimeLimiter timeLimiter = SimpleTimeLimiter.create(Executors.newFixedThreadPool(1));
+
+        int[][] backupBoard = Arrays.stream(board)
+                .map(int[]::clone)
+                .toArray(int[][]::new);
+        try {
+            System.out.println("*** THINKING ***");
+            timeLimiter.runWithTimeout(() -> {
+                for (int depth = 1; depth <= MAX_DEPTH; depth++) {
+                    System.out.println("DEPTH: " + depth);
+                    String newMove = minimax(validMoves, depth);
+                    if (Thread.currentThread().isInterrupted()) {
+                        break;
+                    } else {
+                        System.out.println("New move: " + newMove);
+                        move.set(newMove);
+                    }
+                    if (isGameOver) { break; }
+                }
+                System.out.println("*** ;) ***");
+            }, 5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            System.out.println("*** INTERRUPTED ***");
+        }
+        board = backupBoard;
+
+        System.out.println("Final move: " + move.get());
+        return move.get();
+    }
+
+    private String minimax(List<String> validMoves, int depth) {
         int bestScore = Integer.MIN_VALUE;
         String bestMove = null;
 
+        depth--;
         for (String validMove : validMoves) {
             int[][] backupBoard = Arrays.stream(board)
                     .map(int[]::clone)
@@ -61,26 +103,39 @@ class Game {
 
             performMove(validMove);
 
-            int score = scorePieces(CPUAI_RANGE) - scorePieces(HUMAN_RANGE);
+            if (isGameOver) {
+                bestMove = validMove;
+                board = backupBoard;
+                break;
+            }
+
+            int score = min(depth);
             if (score > bestScore) {
                 bestScore = score;
                 bestMove = validMove;
             }
 
-            if (isGameOver) {
-                return;
-            } else {
-                board = backupBoard;
-            }
+            isGameOver = false;
+            board = backupBoard;
         }
 
-        performMove(bestMove);
+        return bestMove;
     }
 
-    /*private int min(int depth) {
-        int bestScore = Integer.MAX_VALUE;
-        if (depth == MAX_DEPTH) return evaluate();
+    private Integer min(int depth)  {
+        if (Thread.currentThread().isInterrupted()) {
+            return null;
+        }
 
+        int bestScore = Integer.MAX_VALUE;
+
+        if (depth == 0) {
+            return evaluate();
+        } else {
+            depth--;
+        }
+
+        List<String> validMoves = getValidMoves(HUMAN_RANGE);
         for (String validMove : validMoves) {
             int[][] backupBoard = Arrays.stream(board)
                     .map(int[]::clone)
@@ -88,21 +143,60 @@ class Game {
 
             performMove(validMove);
 
-            int score = min(1);//
-            if (score > bestScore) {
-                bestScore = score;
-                bestMove = validMove;
+            if (isGameOver) {
+                isGameOver = false;
+                board = backupBoard;
+                return Integer.MIN_VALUE;
             }
 
-            if (isGameOver) {
-                return;
-            } else {
-                board = backupBoard;
+            int score = max(depth);
+            if (score < bestScore) {
+                bestScore = score;
             }
+
+            board = backupBoard;
         }
 
         return bestScore;
-    }*/
+    }
+
+    private Integer max(int depth) {
+        if (Thread.currentThread().isInterrupted()) {
+            return null;
+        }
+
+        int bestScore = Integer.MIN_VALUE;
+
+        if (depth == 0) {
+            return evaluate();
+        } else {
+            depth--;
+        }
+
+        List<String> validMoves = getValidMoves(CPUAI_RANGE);
+        for (String validMove : validMoves) {
+            int[][] backupBoard = Arrays.stream(board)
+                    .map(int[]::clone)
+                    .toArray(int[][]::new);
+
+            performMove(validMove);
+
+            if (isGameOver) {
+                isGameOver = false;
+                board = backupBoard;
+                return Integer.MAX_VALUE;
+            }
+
+            int score = min(depth);
+            if (score > bestScore) {
+                bestScore = score;
+            }
+
+            board = backupBoard;
+        }
+
+        return bestScore;
+    }
 
     private int evaluate() {
         return scorePieces(CPUAI_RANGE) - scorePieces(HUMAN_RANGE);
@@ -137,23 +231,23 @@ class Game {
         return score;
     }
 
-    private void performMove(String move) {
+    private String performMove(String move) {
         char[] chars = move.toCharArray(); // Algebraic notation
         int x1 = chars[0] - 'A';
         int y1 = 8 - (chars[1] - '0');
         int x2 = chars[2] - 'A';
         int y2 = 8 - (chars[3] - '0');
 
-        performMove(y1, x1, y2, x2);
+        return performMove(y1, x1, y2, x2);
     }
 
-    private void performMove(int y1, int x1, int y2, int x2) {
+    private String performMove(int y1, int x1, int y2, int x2) {
         int piece = board[y1][x1];
         board[y1][x1] = 00;
         board[y2][x2] = piece;
 
         boolean attackPerformed = performAttack(y2, x2);
-        System.out.printf("Move: %s %s\n", getAlgebraicNotation(y1, x1, y2, x2), attackPerformed? "Hi-YA!" : "");
+        return String.format("\nMove: %s (%s) %s", getAlgebraicNotation(y1, x1, y2, x2), getInverseNotation(y1, x1, y2, x2), attackPerformed? "Hi-YA!" : "");
     }
 
     private boolean performAttack(int y, int x) {
@@ -337,9 +431,18 @@ class Game {
     private String getAlgebraicNotation(int fromY, int fromX, int toY, int toX) {
         return new String(new char[] {
                 (char)((int)'A' + fromX),
-                (char)((int)'0' + (8 - fromY)),
+                (char)((int)'8' - fromY),
                 (char)((int)'A' + toX),
-                (char)((int)'0' + (8 - toY)),
+                (char)((int)'8' - toY),
+        });
+    }
+
+    private String getInverseNotation(int fromY, int fromX, int toY, int toX) {
+        return new String(new char[] {
+                (char)((int)'G' - fromX),
+                (char)((int)'1' + fromY),
+                (char)((int)'G' - toX),
+                (char)((int)'1' + toY),
         });
     }
 
@@ -384,7 +487,6 @@ class Game {
         ColoredPrinter coloredPrinter = new ColoredPrinter.Builder(1, false).build();
         boolean blueBG = true;
 
-        coloredPrinter.println("");
         coloredPrinter.println("   --------------------- COMPUTER");
         for(int y = 0; y < 8; y++) {
             coloredPrinter.print(String.format(" %d ", 8 - y));
@@ -424,5 +526,4 @@ class Game {
                 throw new IllegalArgumentException();
         }
     }
-
 }
