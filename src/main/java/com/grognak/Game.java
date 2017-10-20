@@ -96,6 +96,9 @@ public class Game {
         String bestMove = null;
 
         depth--;
+
+        int a = Integer.MIN_VALUE;
+        int b = Integer.MAX_VALUE;
         for (String validMove : validMoves) {
             int[][] backupBoard = Arrays.stream(board)
                     .map(int[]::clone)
@@ -109,12 +112,14 @@ public class Game {
                 break;
             }
 
-            int score = min(depth);
+            int score = min(depth, a, b);
             if (score > bestScore) {
                 bestScore = score;
                 bestMove = validMove;
             }
 
+            a = Math.max(a, bestScore);
+            board = backupBoard;
             isGameOver = false;
             board = backupBoard;
         }
@@ -122,7 +127,7 @@ public class Game {
         return bestMove;
     }
 
-    private Integer min(int depth)  {
+    private Integer min(int depth, int a, int b)  {
         if (Thread.currentThread().isInterrupted()) {
             return null;
         }
@@ -149,18 +154,18 @@ public class Game {
                 return Integer.MIN_VALUE;
             }
 
-            int score = max(depth);
-            if (score < bestScore) {
-                bestScore = score;
-            }
-
+            int score = max(depth, a, b);
+            bestScore = Math.min(bestScore, score);
+            b = Math.min(b, bestScore);
             board = backupBoard;
+
+            if (b <= a) break;
         }
 
         return bestScore;
     }
 
-    private Integer max(int depth) {
+    private Integer max(int depth, int a, int b) {
         if (Thread.currentThread().isInterrupted()) {
             return null;
         }
@@ -187,12 +192,12 @@ public class Game {
                 return Integer.MAX_VALUE;
             }
 
-            int score = min(depth);
-            if (score > bestScore) {
-                bestScore = score;
-            }
-
+            int score = min(depth, a, b);
+            bestScore = Math.max(bestScore, score);
+            a = Math.max(a, score);
             board = backupBoard;
+
+            if (b <= a) break;
         }
 
         return bestScore;
