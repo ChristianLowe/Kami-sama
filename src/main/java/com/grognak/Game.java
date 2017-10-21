@@ -15,9 +15,15 @@ public class Game {
     private static final int HUMAN_RANGE = 20;
     private static final int MAX_DEPTH = 50_000;
 
+    private Map<Integer, List<String>> zobristMapCPUAI;
+    private Map<Integer, List<String>> zobristMapHUMAN;
+    private long[][][] zobrist;
     private int[][] board;
+    private int[] history;
     private boolean isGameOver;
     private Scanner in;
+
+    private int totalPrunes;
 
     Game() {
         init();
@@ -42,7 +48,9 @@ public class Game {
                 String winner = !playerTurn ? "player" : "computer";
                 System.out.printf("Game over! The winner is the %s.\n", winner);
                 System.out.println("Press Ctrl+C to quit...");
-                while (true) in.nextLine(); // :)
+                try {
+                    while (true) in.nextLine(); // :)
+                } catch (NoSuchElementException e) { return; }
             }
 
             if (playerTurn) {
@@ -68,6 +76,7 @@ public class Game {
                 .toArray(int[][]::new);
         try {
             System.out.println("*** THINKING ***");
+            totalPrunes = 0;
             timeLimiter.runWithTimeout(() -> {
                 for (int depth = 1; depth <= MAX_DEPTH; depth++) {
                     System.out.println("DEPTH: " + depth);
@@ -85,6 +94,7 @@ public class Game {
         } catch (Exception e) {
             System.out.println("*** INTERRUPTED ***");
         }
+        System.out.println("Total prunes: " + totalPrunes);
         board = backupBoard;
 
         System.out.println("Final move: " + move.get());
@@ -135,7 +145,7 @@ public class Game {
         int bestScore = Integer.MAX_VALUE;
 
         if (depth == 0) {
-            return evaluate();
+            return evaluate(depth);
         } else {
             depth--;
         }
@@ -159,7 +169,11 @@ public class Game {
             b = Math.min(b, bestScore);
             board = backupBoard;
 
-            if (b <= a) break;
+            if (b <= a) {
+                totalPrunes++;
+                history[moveToHistoryIndex(validMove)] += depth;
+                break;
+            }
         }
 
         return bestScore;
@@ -173,7 +187,7 @@ public class Game {
         int bestScore = Integer.MIN_VALUE;
 
         if (depth == 0) {
-            return evaluate();
+            return evaluate(depth);
         } else {
             depth--;
         }
@@ -197,34 +211,44 @@ public class Game {
             a = Math.max(a, score);
             board = backupBoard;
 
-            if (b <= a) break;
+            if (b <= a) {
+                totalPrunes++;
+                history[moveToHistoryIndex(validMove)] += depth;
+                break;
+            }
         }
 
         return bestScore;
     }
 
-    private int evaluate() {
-        return scorePieces(CPUAI_RANGE) - scorePieces(HUMAN_RANGE);
+    private int evaluate(int depth) {
+        return scorePieces(CPUAI_RANGE, depth) - scorePieces(HUMAN_RANGE, depth);
     }
 
-    private int scorePieces(int range) {
+    private int scorePieces(int range, int depth) {
         int score = 0;
 
         for (int y = 0; y < 8; y++) {
             for (int x = 0; x < 7; x++) {
                 int pieceType = board[y][x] - range;
                 if (pieceType >= 0 && pieceType <= 9) {
+                    if (range == CPUAI_RANGE) {
+                        score += 8 - y;
+                    } else {
+                        score += y;
+                    }
+
                     switch (pieceType) {
                         case 1: // Mini Ninja
                         case 5: // Mini Samurai
-                            score += 1;
+                            score += 10;
                             break;
                         case 2: // Norm Ninja
                         case 6: // Norm Samurai
-                            score += 3;
+                            score += 30;
                             break;
                         case 9: // The King
-                            score += 100;
+                            score += 10000 - depth;
                             break;
                         default:
                             throw new IllegalStateException();
@@ -302,7 +326,22 @@ public class Game {
     }
 
     private List<String> getValidMoves(int range) {
-        List<String> validMoves = new LinkedList<>();
+        // Check Zobrist table
+        int hash = hash();
+        List<String> zobristList;
+
+        if (range == CPUAI_RANGE) {
+            zobristList = zobristMapCPUAI.get(hash);
+        } else {
+            zobristList = zobristMapHUMAN.get(hash);
+        }
+
+        if (zobristList != null) {
+            return zobristList;
+        }
+
+        // We have to calculate the moves
+        List<String> validMoves = new ArrayList<>();
         int forwardY = (range == CPUAI_RANGE) ? 1 : -1; // The computer considers down (+y) as "forward"
 
         for (int y = 0; y < 8; y++) {
@@ -312,6 +351,16 @@ public class Game {
                     addValidMoves(validMoves, y, x, forwardY, range);
                 }
             }
+        }
+
+        // History table
+        validMoves.sort(Comparator.comparingInt(s -> history[moveToHistoryIndex((String)s)]).reversed());
+
+        // Add valid moves to Zobrist map
+        if (range == CPUAI_RANGE) {
+            zobristMapCPUAI.put(hash, validMoves);
+        } else {
+            zobristMapHUMAN.put(hash, validMoves);
         }
 
         return validMoves;
@@ -451,6 +500,53 @@ public class Game {
         });
     }
 
+    private int moveToHistoryIndex(String move) {
+        char[] chars = move.toCharArray(); // Algebraic notation
+        int x1 = chars[0] - 'A';
+        int y1 = 8 - (chars[1] - '0');
+        int x2 = chars[2] - 'A';
+        int y2 = 8 - (chars[3] - '0');
+
+        return moveToHistoryIndex(y1, x1, y2, x2);
+    }
+
+    private int moveToHistoryIndex(int fromY, int fromX, int toY, int toX) {
+        return fromY * 1000
+                + fromX * 100
+                + toY * 10
+                + toX;
+    }
+
+    static private int[] hashReference;
+    static {
+        hashReference = new int[30];
+        hashReference[11] = 0;
+        hashReference[12] = 1;
+        hashReference[15] = 2;
+        hashReference[16] = 3;
+        hashReference[19] = 4;
+        hashReference[21] = 5;
+        hashReference[22] = 6;
+        hashReference[25] = 7;
+        hashReference[26] = 8;
+        hashReference[29] = 9;
+    }
+
+    private int hash() {
+        int hash = 0;
+
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 7; x++) {
+                if (board[y][x] != 00) {
+                    int piece = board[y][x];
+                    hash ^= zobrist[y][x][hashReference[piece]];
+                }
+            }
+        }
+
+        return hash;
+    }
+
     private boolean inBounds(int testY, int testX) {
         return testX >= 0 && testX <= 6 && testY >= 0 && testY <= 7;
     }
@@ -478,10 +574,24 @@ public class Game {
                 {15, 15, 15, 00, 11, 11, 11},
                 {00, 00, 00, 00, 00, 00, 00},
                 {00, 00, 00, 00, 00, 00, 00},
-                {25, 25, 25, 00, 21, 21, 21},
-                {22, 22, 22, 00, 26, 26, 26},
+                {21, 21, 21, 00, 25, 25, 25},
+                {26, 26, 26, 00, 22, 22, 22},
                 {00, 00, 00, 29, 00, 00, 00},
         };
+        history = new int[8787];
+
+        zobristMapCPUAI = new TreeMap<Integer, List<String>>();
+        zobristMapHUMAN = new TreeMap<Integer, List<String>>();
+
+        Random random = new Random();
+        zobrist = new long[8][7][10];
+        for (int y = 0; y < 8; y++) {
+            for (int x = 0; x < 7; x++) {
+                for (int p = 0; p < 10; p++) {
+                    zobrist[y][x][p] = random.nextLong();
+                }
+            }
+        }
 
         isGameOver = false;
         in = new Scanner(System.in);
