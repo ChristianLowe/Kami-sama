@@ -5,27 +5,34 @@ import com.diogonunes.jcdp.color.api.Ansi;
 import com.google.common.util.concurrent.SimpleTimeLimiter;
 import com.google.common.util.concurrent.TimeLimiter;
 
+import java.lang.ref.WeakReference;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
 
 public class Game {
+    private static final boolean USING_PARALLEL = true;
+    private static ExecutorService executorService;
+
     private static final int CPUAI_RANGE = 10;
     private static final int HUMAN_RANGE = 20;
     private static final int MAX_DEPTH = 50_000;
 
-    private Map<Integer, List<String>> zobristMapCPUAI;
-    private Map<Integer, List<String>> zobristMapHUMAN;
-    private long[][][] zobrist;
+    //*private Map<Integer, List<String>> zobristMapCPUAI;
+    //*private Map<Integer, List<String>> zobristMapHUMAN;
+    //*private long[][][] zobrist;
     private int[][] board;
-    private int[] history;
+    private int[] pieceCount;
     private boolean isGameOver;
     private Scanner in;
 
     private int totalPrunes;
 
     Game() {
+        init();
+        warmupJVM();
         init();
 
         boolean playerTurn;
@@ -58,6 +65,7 @@ public class Game {
                 System.out.println(performMove(move));
             } else {
                 String move = getComputerMove(validMoves);
+                garbageCollection();
 
                 System.out.println(performMove(move));
                 System.out.println("My options were: "+String.join(", ", validMoves));
@@ -85,7 +93,9 @@ public class Game {
                         break;
                     } else {
                         System.out.println("New move: " + newMove);
-                        move.set(newMove);
+                        if (newMove != null) {
+                            move.set(newMove);
+                        }
                     }
                     if (isGameOver) { break; }
                 }
@@ -93,6 +103,11 @@ public class Game {
             }, 5, TimeUnit.SECONDS);
         } catch (Exception e) {
             System.out.println("*** INTERRUPTED ***");
+        }
+        try {
+            TimeUnit.MILLISECONDS.sleep(500);
+        } catch (InterruptedException e) {
+            System.out.println("*** SYNC ***");
         }
         System.out.println("Total prunes: " + totalPrunes);
         board = backupBoard;
@@ -129,7 +144,6 @@ public class Game {
             }
 
             a = Math.max(a, bestScore);
-            board = backupBoard;
             isGameOver = false;
             board = backupBoard;
         }
@@ -171,7 +185,6 @@ public class Game {
 
             if (b <= a) {
                 totalPrunes++;
-                history[moveToHistoryIndex(validMove)] += depth;
                 break;
             }
         }
@@ -213,7 +226,6 @@ public class Game {
 
             if (b <= a) {
                 totalPrunes++;
-                history[moveToHistoryIndex(validMove)] += depth;
                 break;
             }
         }
@@ -327,7 +339,7 @@ public class Game {
 
     private List<String> getValidMoves(int range) {
         // Check Zobrist table
-        int hash = hash();
+        /*int hash = hash();
         List<String> zobristList;
 
         if (range == CPUAI_RANGE) {
@@ -338,7 +350,7 @@ public class Game {
 
         if (zobristList != null) {
             return zobristList;
-        }
+        }*/
 
         // We have to calculate the moves
         List<String> validMoves = new ArrayList<>();
@@ -352,16 +364,13 @@ public class Game {
                 }
             }
         }
-
-        // History table
-        validMoves.sort(Comparator.comparingInt(s -> history[moveToHistoryIndex((String)s)]).reversed());
-
+        
         // Add valid moves to Zobrist map
-        if (range == CPUAI_RANGE) {
+        /*if (range == CPUAI_RANGE) {
             zobristMapCPUAI.put(hash, validMoves);
         } else {
             zobristMapHUMAN.put(hash, validMoves);
-        }
+        }*/
 
         return validMoves;
     }
@@ -431,7 +440,7 @@ public class Game {
                     } else break;
                 } while (!isMini);
 
-                return;
+                break;
             case 5: // Mini Samurai
                 isMini = true;
             case 6: // Norm Samurai
@@ -476,7 +485,7 @@ public class Game {
                     } else break;
                 } while (!isMini);
 
-                return;
+                break;
             case 9: // The King
                 // The King has no possible moves.
         }
@@ -500,6 +509,7 @@ public class Game {
         });
     }
 
+    // TODO this can probably be removed
     private int moveToHistoryIndex(String move) {
         char[] chars = move.toCharArray(); // Algebraic notation
         int x1 = chars[0] - 'A';
@@ -517,7 +527,7 @@ public class Game {
                 + toX;
     }
 
-    static private int[] hashReference;
+    /*static private int[] hashReference;
     static {
         hashReference = new int[30];
         hashReference[11] = 0;
@@ -545,7 +555,7 @@ public class Game {
         }
 
         return hash;
-    }
+    }*/
 
     private boolean inBounds(int testY, int testX) {
         return testX >= 0 && testX <= 6 && testY >= 0 && testY <= 7;
@@ -578,9 +588,8 @@ public class Game {
                 {26, 26, 26, 00, 22, 22, 22},
                 {00, 00, 00, 29, 00, 00, 00},
         };
-        history = new int[8787];
 
-        zobristMapCPUAI = new TreeMap<Integer, List<String>>();
+        /***zobristMapCPUAI = new TreeMap<Integer, List<String>>();
         zobristMapHUMAN = new TreeMap<Integer, List<String>>();
 
         Random random = new Random();
@@ -591,12 +600,49 @@ public class Game {
                     zobrist[y][x][p] = random.nextLong();
                 }
             }
-        }
+        }*/
 
         isGameOver = false;
         in = new Scanner(System.in);
     }
 
+    private void warmupJVM() {
+        // This prevents the slow first turn inherent on JIT-based systems.
+        // IMPORTANT: Any "book-building" prohibited by the rules is overwritten
+        // by an init() call immediately after this function.
+
+        List<String> validMoves = getValidMoves(CPUAI_RANGE);
+        TimeLimiter timeLimiter = SimpleTimeLimiter.create(Executors.newFixedThreadPool(1));
+
+        System.out.println("*** JVM WARMUP ***");
+        try {
+            timeLimiter.runWithTimeout(() -> {
+                for (int depth = 1; depth <= MAX_DEPTH; depth++) {
+                    System.out.println("DEPTH: " + depth);
+                    minimax(validMoves, depth);
+                    if (Thread.currentThread().isInterrupted()) {
+                        break;
+                    }
+                }
+            }, 10, TimeUnit.SECONDS);
+        } catch (TimeoutException | InterruptedException e) {
+            System.out.println("*** WARMUP FINISH ***");
+        }
+
+        garbageCollection();
+    }
+
+    private void garbageCollection() {
+        /* Referenced from: https://stackoverflow.com/questions/1481178/how-to-force-garbage-collection-in-java */
+        System.out.println("*** GARBAGE COLLECTING ***");
+        Object dummy = new Object();
+        WeakReference<Object> weakReference = new WeakReference<Object>(dummy);
+        dummy = null;
+        do {
+            System.gc();
+        } while (weakReference.get() != null);
+        System.out.println("*** DONE WITH GC ***");
+    }
 
     private void printBoard() {
         ColoredPrinter coloredPrinter = new ColoredPrinter.Builder(1, false).build();
