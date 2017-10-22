@@ -20,9 +20,9 @@ public class Game {
     private static final int HUMAN_RANGE = 20;
     private static final int MAX_DEPTH = 50_000;
 
-    //*private Map<Integer, List<String>> zobristMapCPUAI;
-    //*private Map<Integer, List<String>> zobristMapHUMAN;
-    //*private long[][][] zobrist;
+    private Hashtable<Integer, List<String>> zobristMapCPUAI;
+    private Hashtable<Integer, List<String>> zobristMapHUMAN;
+    private long[][][] zobrist;
     private int[][] board;
     private int[] pieceCount;
     private boolean isGameOver;
@@ -339,7 +339,7 @@ public class Game {
 
     private List<String> getValidMoves(int range) {
         // Check Zobrist table
-        /*int hash = hash();
+        int hash = hash(range);
         List<String> zobristList;
 
         if (range == CPUAI_RANGE) {
@@ -350,7 +350,7 @@ public class Game {
 
         if (zobristList != null) {
             return zobristList;
-        }*/
+        }
 
         // We have to calculate the moves
         List<String> validMoves = new ArrayList<>();
@@ -364,13 +364,13 @@ public class Game {
                 }
             }
         }
-        
+
         // Add valid moves to Zobrist map
-        /*if (range == CPUAI_RANGE) {
+        if (range == CPUAI_RANGE) {
             zobristMapCPUAI.put(hash, validMoves);
         } else {
             zobristMapHUMAN.put(hash, validMoves);
-        }*/
+        }
 
         return validMoves;
     }
@@ -527,35 +527,36 @@ public class Game {
                 + toX;
     }
 
-    /*static private int[] hashReference;
+    static private int[] hashReference;
     static {
         hashReference = new int[30];
-        hashReference[11] = 0;
-        hashReference[12] = 1;
-        hashReference[15] = 2;
-        hashReference[16] = 3;
-        hashReference[19] = 4;
-        hashReference[21] = 5;
-        hashReference[22] = 6;
-        hashReference[25] = 7;
-        hashReference[26] = 8;
-        hashReference[29] = 9;
+        hashReference[00] = 0;
+        hashReference[11] = 1;
+        hashReference[12] = 2;
+        hashReference[15] = 3;
+        hashReference[16] = 4;
+        hashReference[19] = 5;
+        hashReference[21] = 6;
+        hashReference[22] = 7;
+        hashReference[25] = 8;
+        hashReference[26] = 9;
+        hashReference[29] = 10;
     }
 
-    private int hash() {
+    private int hash(int range) {
         int hash = 0;
 
         for (int y = 0; y < 8; y++) {
             for (int x = 0; x < 7; x++) {
-                if (board[y][x] != 00) {
-                    int piece = board[y][x];
-                    hash ^= zobrist[y][x][hashReference[piece]];
-                }
+                int piece = board[y][x];
+                int rangedPiece = piece - range;
+                if (rangedPiece >= 0 && rangedPiece <= 9)
+                hash ^= zobrist[y][x][hashReference[piece]];
             }
         }
 
         return hash;
-    }*/
+    }
 
     private boolean inBounds(int testY, int testX) {
         return testX >= 0 && testX <= 6 && testY >= 0 && testY <= 7;
@@ -589,18 +590,19 @@ public class Game {
                 {00, 00, 00, 29, 00, 00, 00},
         };
 
-        /***zobristMapCPUAI = new TreeMap<Integer, List<String>>();
-        zobristMapHUMAN = new TreeMap<Integer, List<String>>();
+        zobristMapCPUAI = new Hashtable<>();
+        zobristMapHUMAN = new Hashtable<>();
 
         Random random = new Random();
-        zobrist = new long[8][7][10];
+        zobrist = new long[8][7][11];
         for (int y = 0; y < 8; y++) {
             for (int x = 0; x < 7; x++) {
-                for (int p = 0; p < 10; p++) {
+                zobrist[y][x][0] = 0;
+                for (int p = 1; p < 10; p++) {
                     zobrist[y][x][p] = random.nextLong();
                 }
             }
-        }*/
+        }
 
         isGameOver = false;
         in = new Scanner(System.in);
@@ -667,6 +669,8 @@ public class Game {
         }
         coloredPrinter.println("   --------------------- HUMAN");
         coloredPrinter.println("    A  B  C  D  E  F  G ");
+
+        System.out.printf("** TABLE SIZE: (cpuai=%d, human=%d)\n", zobristMapCPUAI.size(), zobristMapHUMAN.size());
     }
 
     private String pieceToString(int piece) {
