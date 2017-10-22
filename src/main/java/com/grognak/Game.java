@@ -4,13 +4,12 @@ import com.diogonunes.jcdp.color.ColoredPrinter;
 import com.diogonunes.jcdp.color.api.Ansi;
 import com.google.common.util.concurrent.SimpleTimeLimiter;
 import com.google.common.util.concurrent.TimeLimiter;
+import gnu.trove.map.hash.TLongObjectHashMap;
 
 import java.lang.ref.WeakReference;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Lock;
 
 public class Game {
     private static final boolean USING_PARALLEL = true;
@@ -20,11 +19,10 @@ public class Game {
     private static final int HUMAN_RANGE = 20;
     private static final int MAX_DEPTH = 50_000;
 
-    private Hashtable<Integer, List<String>> zobristMapCPUAI;
-    private Hashtable<Integer, List<String>> zobristMapHUMAN;
+    private TLongObjectHashMap<List<String>> zobristMapCPUAI;
+    private TLongObjectHashMap<List<String>> zobristMapHUMAN;
     private long[][][] zobrist;
     private int[][] board;
-    private int[] pieceCount;
     private boolean isGameOver;
     private Scanner in;
 
@@ -65,10 +63,10 @@ public class Game {
                 System.out.println(performMove(move));
             } else {
                 String move = getComputerMove(validMoves);
-                garbageCollection();
 
                 System.out.println(performMove(move));
                 System.out.println("My options were: "+String.join(", ", validMoves));
+                garbageCollection();
             }
 
             playerTurn = !playerTurn;
@@ -234,7 +232,8 @@ public class Game {
     }
 
     private int evaluate(int depth) {
-        return scorePieces(CPUAI_RANGE, depth) - scorePieces(HUMAN_RANGE, depth);
+        return  10*(scorePieces(CPUAI_RANGE, depth) - scorePieces(HUMAN_RANGE, depth)) +
+                5*(getValidMoves(CPUAI_RANGE).size() - getValidMoves(HUMAN_RANGE).size());
     }
 
     private int scorePieces(int range, int depth) {
@@ -253,14 +252,14 @@ public class Game {
                     switch (pieceType) {
                         case 1: // Mini Ninja
                         case 5: // Mini Samurai
-                            score += 10;
+                            score += 15;
                             break;
                         case 2: // Norm Ninja
                         case 6: // Norm Samurai
-                            score += 30;
+                            score += 45;
                             break;
                         case 9: // The King
-                            score += 10000 - depth;
+                            score += 1000000 - (depth*1000);
                             break;
                         default:
                             throw new IllegalStateException();
@@ -339,7 +338,7 @@ public class Game {
 
     private List<String> getValidMoves(int range) {
         // Check Zobrist table
-        int hash = hash(range);
+        long hash = hash(range);
         List<String> zobristList;
 
         if (range == CPUAI_RANGE) {
@@ -543,14 +542,12 @@ public class Game {
         hashReference[29] = 10;
     }
 
-    private int hash(int range) {
-        int hash = 0;
+    private long hash(int range) {
+        long hash = 0;
 
         for (int y = 0; y < 8; y++) {
             for (int x = 0; x < 7; x++) {
                 int piece = board[y][x];
-                int rangedPiece = piece - range;
-                if (rangedPiece >= 0 && rangedPiece <= 9)
                 hash ^= zobrist[y][x][hashReference[piece]];
             }
         }
@@ -590,8 +587,8 @@ public class Game {
                 {00, 00, 00, 29, 00, 00, 00},
         };
 
-        zobristMapCPUAI = new Hashtable<>();
-        zobristMapHUMAN = new Hashtable<>();
+        zobristMapCPUAI = new TLongObjectHashMap<>();
+        zobristMapHUMAN = new TLongObjectHashMap<>();
 
         Random random = new Random();
         zobrist = new long[8][7][11];
@@ -636,14 +633,15 @@ public class Game {
 
     private void garbageCollection() {
         /* Referenced from: https://stackoverflow.com/questions/1481178/how-to-force-garbage-collection-in-java */
-        System.out.println("*** GARBAGE COLLECTING ***");
+        System.out.print("*** GARBAGE COLLECTING .... ");
+        System.out.flush();
         Object dummy = new Object();
         WeakReference<Object> weakReference = new WeakReference<Object>(dummy);
         dummy = null;
         do {
             System.gc();
         } while (weakReference.get() != null);
-        System.out.println("*** DONE WITH GC ***");
+        System.out.println("DONE ***");
     }
 
     private void printBoard() {
