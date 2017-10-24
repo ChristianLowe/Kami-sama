@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class Game {
     private static final boolean USING_PARALLEL = true;
+    private static final boolean DEBUG = true;
     private static ExecutorService executorService;
 
     private static final int CPUAI_RANGE = 10;
@@ -27,6 +28,7 @@ public class Game {
     private Scanner in;
 
     private int totalPrunes;
+    private int totalNodes;
 
     Game() {
         init();
@@ -65,7 +67,7 @@ public class Game {
                 String move = getComputerMove(validMoves);
 
                 System.out.println(performMove(move));
-                System.out.println("My options were: "+String.join(", ", validMoves));
+                if (DEBUG) System.out.println("My options were: "+String.join(", ", validMoves));
                 garbageCollection();
             }
 
@@ -82,7 +84,7 @@ public class Game {
                 .toArray(int[][]::new);
         try {
             System.out.println("*** THINKING ***");
-            totalPrunes = 0;
+            if (DEBUG) totalPrunes = 0;
             timeLimiter.runWithTimeout(() -> {
                 for (int depth = 1; depth <= MAX_DEPTH; depth++) {
                     System.out.println("DEPTH: " + depth);
@@ -107,10 +109,9 @@ public class Game {
         } catch (InterruptedException e) {
             System.out.println("*** SYNC ***");
         }
-        System.out.println("Total prunes: " + totalPrunes);
+        if (DEBUG) System.out.printf("Total (nodes=%d, prunes=%d)\n", totalNodes, totalPrunes);
         board = backupBoard;
 
-        System.out.println("Final move: " + move.get());
         return move.get();
     }
 
@@ -182,7 +183,7 @@ public class Game {
             board = backupBoard;
 
             if (b <= a) {
-                totalPrunes++;
+                if (DEBUG) totalPrunes++;
                 break;
             }
         }
@@ -223,7 +224,7 @@ public class Game {
             board = backupBoard;
 
             if (b <= a) {
-                totalPrunes++;
+                if (DEBUG) totalPrunes++;
                 break;
             }
         }
@@ -232,6 +233,7 @@ public class Game {
     }
 
     private int evaluate(int depth) {
+        if (DEBUG) totalNodes++;
         return  10*(scorePieces(CPUAI_RANGE, depth) - scorePieces(HUMAN_RANGE, depth)) +
                 5*(getValidMoves(CPUAI_RANGE).size() - getValidMoves(HUMAN_RANGE).size());
     }
